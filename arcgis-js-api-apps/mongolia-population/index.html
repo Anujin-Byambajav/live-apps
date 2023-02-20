@@ -1,0 +1,450 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+
+    <title>Population statistics of Mongolia</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.1.1"></script>
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="https://js.arcgis.com/calcite-components/1.0.0-beta.97/calcite.css"
+    />
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.25/esri/themes/dark/main.css"
+    />
+    <script src="https://js.arcgis.com/4.25/"></script>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+
+      .panel-side {
+        padding: 2px;
+        width: 550px;
+        height: 100%;
+        position: absolute;
+        top: 0;
+        right: 0;
+        z-index: 60;
+      }
+
+      #sliderDiv {
+        width: 400px !important;
+        height: 60px !important;
+      }
+      #changeYearsDiv{
+        height: 100px;
+        width: 400px;
+        text-align: center;
+      }
+    </style>
+    <script>
+      require([
+        "esri/Map",
+        "esri/views/MapView",
+        "esri/layers/FeatureLayer",
+        "esri/widgets/Legend",
+        "esri/widgets/Slider",
+        "esri/widgets/Expand"
+      ], (Map, MapView, FeatureLayer, Legend, Slider, Expand) =>
+        (async () => {
+
+        // used by the renderer and chart
+        let displayColors = {
+          total: "#e8ca0d",
+          female:  "#FF00F7",
+          male: "#00ffff"
+        };
+
+        let startOfFields = ["total", "female", "male"];
+
+        let totalPopsCharts = {};
+        let yearChart;
+        const displaySelection = document.getElementById("displaySelection");
+
+        const map = new Map({
+          basemap:  {
+            portalItem: {
+              id: "4f2e99ba65e34bb8af49733d9778fb8e"
+            }
+          }
+        });
+
+        const view = new MapView({
+          container: "viewDiv",
+          map: map,
+          padding: {
+            right: 550
+          },
+          center: [100, 45],
+          zoom: 4
+        });
+
+        const legendExpand = new Expand({
+          content: new Legend({ view })
+        });
+        view.ui.add(legendExpand, "top-left");
+
+        const yearSlider = new Slider({
+          min: 1990,
+          max: 2013,
+          values: [2013],
+          visibleElements: {
+            labels: true,
+            rangeLabels: true
+          },
+          labelInputsEnabled: true,
+          precision: 0,
+          steps: 1,
+          container: "sliderDiv"
+        });
+
+        view.ui.add("changeYearsDiv", "bottom-left");
+
+        yearSlider.on(["thumb-change", "thumb-drag"], (event) => {
+          document.getElementById("sliderHeader").innerHTML = "Displaying population of " + event.value;
+          updateRenderer();
+        });
+
+        const featureLayer = new FeatureLayer({
+          url: "https://services.arcgis.com/ZsdWaRdt8de0J6c5/ArcGIS/rest/services/Population_density_Mongolia/FeatureServer/0",
+          outFields: ["*"],
+          maxScale: 0,
+          renderer: createDotDensityRenderer([{field: "total2013", label: "total2013", color: displayColors.total}]),
+          title: "Mongolian population",
+          popupTemplate: {
+            title: "{nameeng}",
+            content: [
+              {
+                type: "fields",
+                fieldInfos: [
+                  {
+                    fieldName: "Popden_13",
+                    label: "pop density 13",
+                    format: {
+                      places: 0,
+                      digitSeparator: true
+                    }
+                  },
+                  {
+                    fieldName: "Areas",
+                    label: "Areas",
+                    format: {
+                      places: 0,
+                      digitSeparator: true
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        });
+        map.add(featureLayer);
+
+        // ********************************************************************************
+        // This function updates the dot density renderer of the layer whenever users
+        // changes the thumb on the years slider or when user selects a different option
+        // from displaySelection combobox
+        // ********************************************************************************
+        function updateRenderer() {
+          displayChoice = displaySelection.value;
+          let attributes = [];
+          const fieldName = generateFieldName(displayChoice, yearSlider.values[0]);
+
+          if (displayChoice === "female"){
+            attributes.push(createRendererAttribute(fieldName, displayColors.female));
+          } else if (displayChoice === "male"){
+            attributes.push(createRendererAttribute(fieldName, displayColors.male));
+          } else if (displayChoice === "total"){
+            attributes.push(createRendererAttribute(fieldName, displayColors.total));
+          } else {
+            // means user selected all, we need to update the dotDensityRenderer to display total, female and male fields
+            startOfFields.forEach((field, i)=> {
+              const fieldName = generateFieldName(field, yearSlider.values[0]);
+              attributes.push(createRendererAttribute(fieldName, displayColors[field]));
+            });
+          }
+          featureLayer.renderer = createDotDensityRenderer(attributes);
+        }
+
+        const layerView = await view.whenLayerView(featureLayer);
+
+        const query = {
+          where: "1=1",
+          outFields: ["*"],
+          outStatistics: []
+        };
+        await queryForData("total", 1990);
+
+        // ********************************************************************************
+        // Called from queryForData function. This function creates SUM statisticsDefinition
+        // for a given field
+        // ********************************************************************************
+        function createPopupStats(fieldBeginning, year) {
+          let fieldName = generateFieldName(fieldBeginning, year);
+          return {
+            statisticType: "sum",
+            onStatisticField: fieldName,
+            outStatisticFieldName: fieldBeginning + "_pop" + year
+          };
+        }
+
+        // ********************************************************************************
+        // Called when the app loads - it queries the service for SUM stats on all total
+        // population fields from 1990-2013
+        // It is also called from displaySelection combobox data change event - it runs
+        // SUM stats on female and male fields
+        // ********************************************************************************
+        async function queryForData(fieldBeginning, startYear) {
+          let year = startYear;
+          query.outStatistics = [];
+          // create SUM stats for either total, female or male fields between 1990 - 2013
+          while (year <= 2013) {
+            let statisticDefinition = createPopupStats(fieldBeginning, year);
+            query.outStatistics.push(statisticDefinition);
+            year++;
+          }
+
+          let chartData;
+
+          // we are going to run the query only 3 times one for total fields, one for male fields
+          // and one for female fields... once query all three queries are done we do not need to
+          // run the queries again as server side queries are expensive.
+          // this checks if totalPopsCharts object has statistics for total, male and female fields
+          const hasAllQueries = startOfFields.every(item => totalPopsCharts.hasOwnProperty(item));
+
+          // if not true then we have to run the query on the server side for the total, female or male fields
+          if (!hasAllQueries) {
+            const featureSet = await featureLayer.queryFeatures(query);
+            // create an array of SUM stats values from the stats query results for the given fields
+            chartData = featureSet.features.map(function (feature, i) {
+              return Object.values(feature.attributes);
+            });
+            // store the total, female or male stats arrays in the totalPopsCharts object
+            // we will use this object once we have total, female and male stats arrays.
+            if (!totalPopsCharts.hasOwnProperty(fieldBeginning)){
+              totalPopsCharts[fieldBeginning] = chartData[0];
+            }
+          }
+          // create a new chart with total population data from 2013 when app loads
+          if (!yearChart) {
+            createCharts(chartData);
+          } else { 
+            // this means the app loaded and chart is already create. We just need to update the chart
+            // with the selected stats - total, female, male or all three
+            updateCharts(totalPopsCharts[fieldBeginning], displayColors[fieldBeginning], false);
+          }
+        }
+
+        // ********************************************************************************
+        // This function is called from queryForData function or when user selects
+        // "all three" option from the displaySelection combobox
+        // ********************************************************************************
+        function updateCharts(data, color, isStacked){
+          if (!isStacked){
+            // just show the chart for either total, female or male SUM stats
+            yearChart.data.datasets=[{
+              backgroundColor: color,
+              data: data
+            }];
+            yearChart.update(0);
+          } else {
+            // show the chart for all three stats, bars need to be stacked
+            yearChart.data.datasets = [
+              {
+                backgroundColor: displayColors["total"],
+                data: data["total"]
+              },
+              {
+                backgroundColor: displayColors["male"],
+                data: data["male"]
+              },
+              {
+                backgroundColor: displayColors["female"],
+                data: data["female"]
+              }
+            ]
+            yearChart.update(0);
+          }
+        }
+
+        // ********************************************************************************
+        // this function is called from queryForData when the app loads for the first time
+        // ********************************************************************************
+        function createCharts(dataset) {
+          const yearCanvas = document.getElementById("year-chart");
+          yearChart = new Chart(yearCanvas.getContext("2d"), {
+            type: "bar",
+            data: {
+              labels: generateYearsBetween(1990, 2013),
+              datasets: [{
+                data: dataset[0],
+                backgroundColor: ["#e8ca0d"],
+              }]
+            },
+            options: {
+              responsive: false,
+              plugins: {
+                legend: {
+                  display: false
+                },
+                title: {
+                  display: true,
+                  text: "Country population by years",
+                  color: "#d1d1d1"
+                }
+              },
+              scales: {
+                x: {
+                  stacked: true,
+                  ticks: {
+                    color: "#d1d1d1"
+                  }
+                },
+                y: {
+                  stacked: true,
+                  ticks: {
+                    callback: function(label, index, labels) {
+                      return label/1000000+'m';
+                    },
+                    color: "#d1d1d1"
+                  }
+                }
+              }
+            }
+          });
+        }
+
+        // ********************************************************************************
+        // This function creates a new dot density renderer with provided attributes
+        // ********************************************************************************
+        function createDotDensityRenderer(attributes) {
+          const renderer = {
+            type: "dot-density",
+            dotValue: 100, 
+            dotSize: "1px",
+            outline: {
+              color: "#606060",
+              width: "0.5px"
+            },
+            referenceScale: 9244648.868618,
+            attributes: attributes
+          };
+          return renderer;
+        }
+        const resultPanel = document.getElementById("result-panel");
+        const toggleButton = document.getElementById("toggle-button");
+        view.ui.add(toggleButton, "top-left");
+
+        toggleButton.addEventListener("click", function () {
+          if (resultPanel.clientWidth == 550) {
+            resultPanel.style.width = "0px";
+            toggleButton.icon = "chevrons-right";
+            toggleButton.title = "Expand results panel";
+          } else {
+            resultPanel.style.width = "550px";
+            toggleButton.icon = "chevrons-left";
+            toggleButton.title = "Collapse results panel";
+          }
+        });
+
+         displaySelection.addEventListener("change", async () =>{
+           updateRenderer();
+           yearSlider.values = [2013];
+           if (displaySelection.value == "all") {
+             updateCharts(totalPopsCharts, displayColors, true);
+           } else {
+              await queryForData(displaySelection.value, 1990);
+           } 
+
+           const hasAllQueries = startOfFields.every(item => totalPopsCharts.hasOwnProperty(item));
+            if (hasAllQueries){
+             Array.prototype.find.call(displaySelection.options, (o)=>{
+               if (o.value === "all"){
+                o.disabled = false;
+               }
+             });
+            }
+         });
+
+        function generateFieldName(displayChoice, year) {
+           let fieldName;
+           if (year == 1994 && displayChoice == "total"){
+             // fieldName = displayChoice + "_"+ slider.values[0];
+             fieldName = displayChoice + "_"+ year;
+           } else if ((year == 2000  || year === 2010) && displayChoice == "male"){
+             // fieldName = "mal"+ slider.values[0];
+             fieldName = "mal"+ year;
+           }
+          else {
+            // fieldName = displayChoice + slider.values[0];
+            fieldName = displayChoice + year;
+           }
+          return fieldName;
+        }
+
+        function createRendererAttribute(fieldName, color) {
+           return attribute = {
+            field: fieldName,
+            label: fieldName,
+            color: color
+          };  
+        }
+
+        function generateYearsBetween(startYear, endYear) {
+          let years = [];
+          while (startYear <= endYear) {
+            years.push(startYear);
+            startYear++;
+          }
+          return years;
+        }
+        })());
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+    <div id="changeYearsDiv" class="esri-widget">
+      <h4 id="sliderHeader">Display population of 2013<h4>
+      <div id="sliderDiv" class="esri-widget"></div>
+    </div>
+    <calcite-action
+      id="toggle-button"
+      text="Toggle results panel"
+      title="Collapse results panel"
+      icon="chevrons-left"
+      scale="s"
+    >
+    </calcite-action>
+    <calcite-panel class="panel-side calcite-theme-dark" id="result-panel">
+      <div slot="header-content" scale="s">
+        <h3 class="heading">Population statistics by soums and aimags</h3>
+        <div id="totalCount"></div>
+        <p>Update renderer and chart:</p>
+        <select id="displaySelection" class="esri-input esri-select">
+          <option value="total" selected>total population</option>
+          <option value="male">male population</option>
+          <option value="female">female population</option>
+          <option value="all" disabled>all three</option>
+        </select>
+      </div>
+      <div><br/>
+        <canvas id="year-chart" height="350" width="500"></canvas>
+      </div>
+  </body>
+</html>
