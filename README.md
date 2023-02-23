@@ -12,6 +12,6 @@ Users also can select to display total, male or female population data. This wil
 
 ![image](https://user-images.githubusercontent.com/106698838/213625666-243c4413-bbd8-44a8-bc01-61a7d17902e9.png)
 
-[view the code](https://github.com/Anujin-Byambajav/live-apps/arcgis-js-api-apps/tree/main/mongolia-population)
+[view the code](https://github.com/Anujin-Byambajav/live-apps/tree/main/arcgis-js-api-apps)
 
 [view live sample](https://anujin-byambajav.github.io/live-apps/arcgis-js-api-apps/mongolia-population/index.html)
