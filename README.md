@@ -2,6 +2,13 @@
 
 This repository contains apps that can be visualized via GitHub pages.
 
+### Personal portfolio
+
+This folder contains a simple HTML application. This is my personal website.
+
+Go to [this website](https://anujin-byambajav.github.io/live-apps/personal-page/index.html) to learn more about me and what I do!
+You can find my resume [here](https://anujin-byambajav.github.io/live-apps/personal-page/index.html#resume).
+
 ### ArcGIS JS API APPS
 
 This folder contains apps I created using [ ArcGIS Maps SDK for JavaScript](https://developers.arcgis.com/javascript/latest/).
